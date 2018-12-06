@@ -1,3 +1,5 @@
 *.fna
 *.fasta
 *.phash
+*.gz
+pHash/pHash
