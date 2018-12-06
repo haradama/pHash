@@ -1,5 +1,4 @@
 ![pHash](./logo.png)
-# pHash
 
 ## Usage
 
