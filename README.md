@@ -1,4 +1,4 @@
-![pHash](./logo.png)
+![pHash](./pHash_logo.svg)
 
 ## Usage
 
