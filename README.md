@@ -1,4 +1,4 @@
-![pHash](./pHash_logo.svg | width=100)
+<img src="./pHash_logo.svg" width="40%" alt="pHash">
 
 ## Usage
 
