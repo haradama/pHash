@@ -1,5 +1,7 @@
 <img src="./pHash_logo.svg" width="40%" alt="pHash">
 
+## Installation
+
 ## Usage
 
 ## License

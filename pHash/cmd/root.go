@@ -12,12 +12,14 @@ type Plasmids struct {
 }
 
 type Options struct {
-	optIn       string
-	optOut      string
-	optDB       string
-	optParalell int
-	optKmer     int
-	optSketch   int
+	optIn          string
+	optBuildOut    string
+	optIdentifyOut string
+	optDB          string
+	optParalell    int
+	optKmer        int
+	optSketch      int
+	optThreshold   int
 }
 
 var (
@@ -27,8 +29,8 @@ var (
 
 var RootCmd = &cobra.Command{
 	Use:   "pHash",
-	Short: "This tool is pretty cool.",
-	Long:  "This tool is a great convenience.",
+	Short: "Software to identify knwon plasmid",
+	Long:  "Software to identify knwon plasmid sequence data from metagenome using Minhash",
 	Run: func(cmd *cobra.Command, args []string) {
 
 	},
@@ -41,8 +43,8 @@ func init() {
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the version number of go-keisan",
-	Long:  `All software has versions. This is go-keisan's`,
+	Short: "Print the version number of pHash",
+	Long:  "Print the version number of pHash",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("pHash v0.1")
 	},

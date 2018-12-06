@@ -17,26 +17,28 @@ import (
 )
 
 func init() {
-	RootCmd.AddCommand(searchCmd)
-	searchCmd.Flags().StringVarP(&o.optIn, "in", "i", "default", "string option")
-	searchCmd.Flags().StringVarP(&o.optOut, "out", "o", "default", "string option")
-	searchCmd.Flags().StringVarP(&o.optDB, "db", "d", "default", "string option")
-	searchCmd.Flags().IntVarP(&o.optParalell, "paralell", "p", 4, "int option")
-	searchCmd.Flags().IntVarP(&o.optKmer, "kmer", "k", 17, "int option")
-	searchCmd.Flags().IntVarP(&o.optSketch, "sketch", "s", 1024, "int option")
+	RootCmd.AddCommand(identifyCmd)
+	identifyCmd.Flags().StringVarP(&o.optIn, "in", "i", "", "Input FASTA file")
+	identifyCmd.Flags().StringVarP(&o.optIdentifyOut, "out", "o", "plasmid.fna", "Output FASTA file")
+	identifyCmd.Flags().StringVarP(&o.optDB, "db", "d", "plasmidDB.phash", "Database")
+	identifyCmd.Flags().IntVarP(&o.optThreshold, "threshold", "t", 10, "Threshold of probability")
+	identifyCmd.Flags().IntVarP(&o.optParalell, "paralell", "p", 4, "Number of parallel processing")
+	identifyCmd.Flags().IntVarP(&o.optKmer, "kmer", "k", 17, "Length of k-mer")
+	identifyCmd.Flags().IntVarP(&o.optSketch, "sketch", "s", 1024, "Sketch size")
 }
 
-var searchCmd = &cobra.Command{
-	Use:   "search",
-	Short: "Calculator of addition.",
-	Long:  "Calculator to perform the addition.",
+var identifyCmd = &cobra.Command{
+	Use:   "identify",
+	Short: "Identifier of plasmid",
+	Long:  "Identifier of plasmid using database",
 	Run: func(cmd *cobra.Command, args []string) {
 		inFile := o.optIn
 		db := o.optDB
-		// outFile := o.optOut
+		outFile := o.optIdentifyOut
 		paralell := o.optParalell
 		k := o.optKmer
 		sketchSize := o.optSketch
+		threshold := float64(o.optThreshold) * 0.01
 
 		var in *fasta.Reader
 		if inFile == "" {
@@ -56,6 +58,10 @@ var searchCmd = &cobra.Command{
 		}
 
 		plasmidsMap := messagePackDecoding(binary).Plasmid
+
+		file, _ := os.Create(outFile)
+		w := fasta.NewWriter(file, 60)
+		plasmidSeq := linear.NewSeq("", nil, alphabet.DNA)
 
 		for {
 			s, err := in.Read()
@@ -83,7 +89,17 @@ var searchCmd = &cobra.Command{
 					bestHitValue = similarity
 				}
 			}
-			fmt.Println(s.Name(), bestHitKey, bestHitValue)
+			if bestHitValue >= threshold {
+				plasmidSeq.ID = s.Name()
+				plasmidSeq.Desc = fmt.Sprintf("Similar to %s (%f)", bestHitKey, bestHitValue)
+				_s := s.Slice()
+				plasmidSeq.Seq = []alphabet.Letter(_s.(alphabet.Letters).String())
+				fmt.Println(s.Name(), bestHitKey, bestHitValue)
+				_, err := w.Write(plasmidSeq)
+				if err != nil {
+					log.Printf("Failed to write: %s", err)
+				}
+			}
 		}
 	},
 }

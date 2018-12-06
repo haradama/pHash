@@ -17,20 +17,20 @@ import (
 
 func init() {
 	RootCmd.AddCommand(buildCmd)
-	buildCmd.Flags().StringVarP(&o.optIn, "in", "i", "default", "string option")
-	buildCmd.Flags().StringVarP(&o.optOut, "out", "o", "reference.phash", "string option")
-	buildCmd.Flags().IntVarP(&o.optParalell, "paralell", "p", 4, "int option")
-	buildCmd.Flags().IntVarP(&o.optKmer, "kmer", "k", 17, "int option")
-	buildCmd.Flags().IntVarP(&o.optSketch, "sketch", "s", 1024, "int option")
+	buildCmd.Flags().StringVarP(&o.optIn, "in", "i", "default", "Input FASTA file")
+	buildCmd.Flags().StringVarP(&o.optBuildOut, "out", "o", "reference.phash", "Database")
+	buildCmd.Flags().IntVarP(&o.optParalell, "paralell", "p", 4, "Number of parallel processing")
+	buildCmd.Flags().IntVarP(&o.optKmer, "kmer", "k", 17, "Length of k-mer")
+	buildCmd.Flags().IntVarP(&o.optSketch, "sketch", "s", 1024, "Sketch size")
 }
 
 var buildCmd = &cobra.Command{
 	Use:   "build",
-	Short: "Calculator of addition.",
-	Long:  "Calculator to perform the addition.",
+	Short: "Builder of plasmid database",
+	Long:  "Builder of plasmid database using MinHash",
 	Run: func(cmd *cobra.Command, args []string) {
 		inFile := o.optIn
-		outFile := o.optOut
+		outFile := o.optBuildOut
 		paralell := o.optParalell
 		k := o.optKmer
 		sketchSize := o.optSketch
