@@ -3,16 +3,16 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
+	"runtime"
+	"strings"
+	"sync"
 
+	"github.com/OneOfOne/xxhash"
 	"github.com/biogo/biogo/alphabet"
 	"github.com/biogo/biogo/io/seqio/fasta"
 	"github.com/biogo/biogo/seq/linear"
 	"github.com/spf13/cobra"
-	"github.com/ugorji/go/codec"
-
-	"./core"
 )
 
 func init() {
@@ -20,6 +20,7 @@ func init() {
 	buildCmd.Flags().StringVarP(&o.optIn, "in", "i", "default", "Input FASTA file")
 	buildCmd.Flags().StringVarP(&o.optBuildOut, "out", "o", "reference.phash", "Database")
 	buildCmd.Flags().IntVarP(&o.optParalell, "paralell", "p", 4, "Number of parallel processing")
+	buildCmd.Flags().BoolVarP(&o.optProgress, "pbar", "b", false, "Show progress bar")
 	buildCmd.Flags().IntVarP(&o.optKmer, "kmer", "k", 17, "Length of k-mer")
 	buildCmd.Flags().IntVarP(&o.optSketch, "sketch", "s", 1024, "Sketch size")
 }
@@ -29,11 +30,21 @@ var buildCmd = &cobra.Command{
 	Short: "Builder of plasmid database",
 	Long:  "Builder of plasmid database using MinHash",
 	Run: func(cmd *cobra.Command, args []string) {
+
+		if o.optIn == "" || o.optBuildOut == "" {
+			fmt.Println("--in and --out are required")
+			cmd.Help()
+			os.Exit(0)
+		}
+
 		inFile := o.optIn
 		outFile := o.optBuildOut
-		paralell := o.optParalell
+		NGoRoutines := o.optParalell
 		k := o.optKmer
 		sketchSize := o.optSketch
+		progress := o.optProgress
+
+		runtime.GOMAXPROCS(NGoRoutines)
 
 		var in *fasta.Reader
 		if inFile == "" {
@@ -46,7 +57,24 @@ var buildCmd = &cobra.Command{
 			defer f.Close()
 		}
 
+		ambiguousDnaComplement := strings.NewReplacer(
+			"A", "T",
+			"C", "G",
+			"G", "C",
+			"T", "A",
+			"M", "K",
+			"R", "Y",
+			"Y", "R",
+			"K", "M",
+			"V", "B",
+			"H", "D",
+			"D", "H",
+			"B", "V")
+
 		plasmidsMap := map[string][]uint64{}
+
+		bar := makeBar(&inFile, &progress)
+		bar.Start()
 
 		for {
 			s, err := in.Read()
@@ -57,8 +85,30 @@ var buildCmd = &cobra.Command{
 				}
 				break
 			}
-			minHashValue := core.MinHash(&s, k, paralell, sketchSize)
-			plasmidsMap[s.Name()] = *minHashValue
+
+			kmerList := getKmerList(&s, &k, ambiguousDnaComplement)
+			minHashValues := make([]uint64, sketchSize)
+
+			wg := sync.WaitGroup{}
+			for i := uint64(0); i < uint64(sketchSize); i++ {
+				wg.Add(1)
+				go func(i uint64) {
+					minValue := uint64((1 << 64) - 1)
+					for _, kmer := range *kmerList {
+						xxhv := xxhash.Checksum64S(kmer, i)
+						if minValue > xxhv {
+							minValue = xxhv
+						}
+					}
+					minHashValues[i] = minValue
+					wg.Done()
+				}(i)
+			}
+			wg.Wait()
+
+			plasmidsMap[s.Name()] = minHashValues
+
+			bar.Increment()
 		}
 
 		plasmids := Plasmids{
@@ -74,16 +124,7 @@ var buildCmd = &cobra.Command{
 		}
 		defer file.Close()
 
-		file.Write(messagePackEncoding(plasmids))
-
+		file.Write(messagePackEncoding(&plasmids))
+		bar.FinishPrint("Done!")
 	},
-}
-
-func messagePackEncoding(plasmids Plasmids) []byte {
-	buf := make([]byte, 0, 64)
-	err := codec.NewEncoderBytes(&buf, &mh).Encode(plasmids)
-	if err != nil {
-		log.Printf("error encoding %v to MessagePack: %v", plasmids, err)
-	}
-	return buf
 }

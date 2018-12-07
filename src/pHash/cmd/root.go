@@ -7,45 +7,57 @@ import (
 	"github.com/ugorji/go/codec"
 )
 
-type Plasmids struct {
-	Plasmid map[string][]uint64
-}
+type (
+	Plasmids struct {
+		Plasmid map[string][]uint64
+	}
 
-type Options struct {
-	optIn          string
-	optBuildOut    string
-	optIdentifyOut string
-	optDB          string
-	optParalell    int
-	optKmer        int
-	optSketch      int
-	optThreshold   int
-}
+	Options struct {
+		optIn          string
+		optBuildOut    string
+		optIdentifyOut string
+		optDB          string
+		optProgress    bool
+		optParalell    int
+		optKmer        int
+		optSketch      int
+		optThreshold   int
+	}
+)
 
 var (
 	mh codec.MsgpackHandle
 	o  = &Options{}
+
+	RootCmd = &cobra.Command{
+		Use:   "pHash",
+		Short: "Software to identify knwon plasmid",
+		Long:  "Software to identify knwon plasmid from metagenome using Minhash",
+		Run: func(cmd *cobra.Command, args []string) {
+			cmd.Help()
+		},
+	}
+
+	versionCmd = &cobra.Command{
+		Use:   "version",
+		Short: "Print the version number of pHash",
+		Long:  "Print the version number of pHash",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("pHash v0.2")
+		},
+	}
 )
-
-var RootCmd = &cobra.Command{
-	Use:   "pHash",
-	Short: "Software to identify knwon plasmid",
-	Long:  "Software to identify knwon plasmid sequence data from metagenome using Minhash",
-	Run: func(cmd *cobra.Command, args []string) {
-
-	},
-}
 
 func init() {
 	cobra.OnInitialize()
 	RootCmd.AddCommand(versionCmd)
 }
 
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print the version number of pHash",
-	Long:  "Print the version number of pHash",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("pHash v0.1")
-	},
+func rev(seq *string) string {
+	runes := []rune(*seq)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+
+	return string(runes)
 }
