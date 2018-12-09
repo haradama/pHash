@@ -1,6 +1,6 @@
 <img src="./pHash_logo.svg" width="40%" alt="pHash">
 
-pHash is a software to identify known plasmid from metagenomic assembly using MinHash.
+pHash is a software to identify known plasmid from metagenomic assembly with the very lightweight database.
 
 ## Installation
 pHash is available in release page:(https://github.com/haradama/pHash/releases)
@@ -28,7 +28,11 @@ Flags:
 
 for example,
 ```
-pHash identify -d plasmidDB11062018.phash -i YOUR_METAGEMOME_FILE
+pHash identify -d plasmidDB11062018.phash -i YOUR_METAGEMOMIC_DATA
+```
+If you want to build your own database, please execute the following command.
+```
+pHash build -i YOUR_PLASMID_DATA -o YOUR_DATABASE_NAME
 ```
 
 ## Test
