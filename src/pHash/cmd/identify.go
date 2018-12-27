@@ -16,6 +16,7 @@ import (
 	"github.com/biogo/biogo/io/seqio/fasta"
 	"github.com/biogo/biogo/seq/linear"
 	"github.com/spf13/cobra"
+	pb "gopkg.in/cheggaaa/pb.v1"
 )
 
 func init() {
@@ -46,8 +47,6 @@ var identifyCmd = &cobra.Command{
 		db := o.optDB
 		outFile := o.optIdentifyOut
 		NGoRoutines := o.optParalell
-		k := o.optKmer
-		sketchSize := o.optSketch
 		threshold := float64(o.optThreshold) * 0.01
 		progress := o.optProgress
 
@@ -84,10 +83,15 @@ var identifyCmd = &cobra.Command{
 			return
 		}
 
+		k := messagePackDecoding(&binary).Kmer
+		sketchSize := messagePackDecoding(&binary).SketchSize
 		plasmidsMap := messagePackDecoding(&binary).Plasmid
 
-		bar := makeBar(&inFile, &progress)
-		bar.Start()
+		var bar *pb.ProgressBar
+		if progress == true {
+			bar = makeBar(&inFile)
+			bar.Start()
+		}
 
 		file, _ := os.Create(outFile)
 		w := fasta.NewWriter(file, 60)
@@ -138,6 +142,7 @@ var identifyCmd = &cobra.Command{
 					bestHitValue = similarity
 				}
 			}
+			fmt.Println(s.Name(), s.Description(), bestHitKey, bestHitValue)
 
 			if bestHitValue >= threshold {
 				plasmidSeq.ID = s.Name()
@@ -148,9 +153,14 @@ var identifyCmd = &cobra.Command{
 					log.Printf("Failed to write: %s", err)
 				}
 			}
-			bar.Increment()
+
+			if progress == true {
+				bar.Increment()
+			}
 		}
-		bar.FinishPrint("Done!")
+		if progress == true {
+			bar.FinishPrint("Done!")
+		}
 	},
 }
 

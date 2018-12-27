@@ -9,7 +9,9 @@ import (
 
 type (
 	Plasmids struct {
-		Plasmid map[string][]uint64
+		SketchSize int
+		Kmer       int
+		Plasmid    map[string][]uint64
 	}
 
 	Options struct {

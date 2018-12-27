@@ -14,7 +14,7 @@ import (
 	pb "gopkg.in/cheggaaa/pb.v1"
 )
 
-func makeBar(inFile *string, progress *bool) *pb.ProgressBar {
+func makeBar(inFile *string) *pb.ProgressBar {
 	f, err := os.Open(*inFile)
 	if err != nil {
 		os.Exit(1)
@@ -34,11 +34,8 @@ func makeBar(inFile *string, progress *bool) *pb.ProgressBar {
 	bar.ShowPercent = false
 	bar.ShowSpeed = false
 	bar.ShowTimeLeft = false
-
-	if *progress == false {
-		bar.ShowBar = false
-		bar.ShowCounters = false
-	}
+	bar.ShowBar = false
+	bar.ShowCounters = false
 
 	return bar
 }

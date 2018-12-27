@@ -13,6 +13,7 @@ import (
 	"github.com/biogo/biogo/io/seqio/fasta"
 	"github.com/biogo/biogo/seq/linear"
 	"github.com/spf13/cobra"
+	pb "gopkg.in/cheggaaa/pb.v1"
 )
 
 func init() {
@@ -73,8 +74,11 @@ var buildCmd = &cobra.Command{
 
 		plasmidsMap := map[string][]uint64{}
 
-		bar := makeBar(&inFile, &progress)
-		bar.Start()
+		var bar *pb.ProgressBar
+		if progress == true {
+			bar = makeBar(&inFile)
+			bar.Start()
+		}
 
 		for {
 			s, err := in.Read()
@@ -108,11 +112,15 @@ var buildCmd = &cobra.Command{
 
 			plasmidsMap[s.Name()] = minHashValues
 
-			bar.Increment()
+			if progress == true {
+				bar.Increment()
+			}
 		}
 
 		plasmids := Plasmids{
-			Plasmid: plasmidsMap,
+			SketchSize: sketchSize,
+			Kmer:       k,
+			Plasmid:    plasmidsMap,
 		}
 
 		file, err := os.Create(outFile)
@@ -125,6 +133,9 @@ var buildCmd = &cobra.Command{
 		defer file.Close()
 
 		file.Write(messagePackEncoding(&plasmids))
-		bar.FinishPrint("Done!")
+
+		if progress == true {
+			bar.FinishPrint("Done!")
+		}
 	},
 }
