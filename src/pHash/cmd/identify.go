@@ -7,7 +7,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/biogo/biogo/io/seqio/fasta"
 	"github.com/biogo/biogo/seq/linear"
 	"github.com/spf13/cobra"
-	pb "gopkg.in/cheggaaa/pb.v1"
 )
 
 func init() {
@@ -25,9 +23,6 @@ func init() {
 	identifyCmd.Flags().StringVarP(&o.optIdentifyOut, "out", "o", "", "Output FASTA file")
 	identifyCmd.Flags().StringVarP(&o.optDB, "db", "d", "", "Database")
 	identifyCmd.Flags().IntVarP(&o.optThreshold, "threshold", "t", 5, "Threshold of probability")
-	identifyCmd.Flags().IntVarP(&o.optParalell, "paralell", "p", 4, "Number of parallel processing")
-	identifyCmd.Flags().BoolVarP(&o.optProgress, "pbar", "b", false, "Show progress bar")
-	identifyCmd.Flags().IntVarP(&o.optKmer, "kmer", "k", 17, "Length of k-mer")
 	identifyCmd.Flags().IntVarP(&o.optSketch, "sketch", "s", 1024, "Sketch size")
 }
 
@@ -46,11 +41,7 @@ var identifyCmd = &cobra.Command{
 		inFile := o.optIn
 		db := o.optDB
 		outFile := o.optIdentifyOut
-		NGoRoutines := o.optParalell
 		threshold := float64(o.optThreshold) * 0.01
-		progress := o.optProgress
-
-		runtime.GOMAXPROCS(NGoRoutines)
 
 		var in *fasta.Reader
 		if inFile == "" {
@@ -87,80 +78,110 @@ var identifyCmd = &cobra.Command{
 		sketchSize := messagePackDecoding(&binary).SketchSize
 		plasmidsMap := messagePackDecoding(&binary).Plasmid
 
-		var bar *pb.ProgressBar
-		if progress == true {
-			bar = makeBar(&inFile)
-			bar.Start()
-		}
+		var wg sync.WaitGroup
+		mutex := new(sync.Mutex)
 
-		file, _ := os.Create(outFile)
-		w := fasta.NewWriter(file, 60)
+		fwfasta, _ := os.Create("pHash_plasmids.fna")
+		fastaw := fasta.NewWriter(fwfasta, 60)
 		plasmidSeq := linear.NewSeq("", nil, alphabet.DNA)
 
-		for {
-			s, err := in.Read()
-			if err != nil {
-				if err != io.EOF {
-					fmt.Println(err)
-					os.Exit(1)
-				}
-				break
-			}
+		fw, _ := os.Create(outFile)
+		defer fw.Close()
 
-			kmerList := getKmerList(&s, &k, ambiguousDnaComplement)
-			minHashValues := make([]*uint64, sketchSize)
+		line := "AccId\tDescription\tSimilarPlasmidAccId\tSimilarity\n"
+		fw.Write(([]byte)(line))
 
-			wg := sync.WaitGroup{}
-			for i := uint64(0); i < uint64(sketchSize); i++ {
-				wg.Add(1)
-				go func(i uint64) {
-					minValue := uint64((1 << 64) - 1)
-					for _, kmer := range *kmerList {
-						xxhv := xxhash.Checksum64S(kmer, i)
-						if minValue > xxhv {
-							minValue = xxhv
+		for i := 0; i < 1000; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					mutex.Lock()
+					s, err := in.Read()
+					mutex.Unlock()
+
+					if err != nil {
+						if err != io.EOF {
+							fmt.Println(err)
+							os.Exit(1)
+						}
+						break
+					}
+
+					read := s.Slice()
+					kmerNum := read.Len() - (k - 1)
+					kmerMap := make(map[string]struct{})
+
+					for i := 0; i < kmerNum; i++ {
+						seq := read.Slice(i, i+k).(alphabet.Letters).String()
+						if strings.Index(seq, "N") == -1 {
+							reverseComplement := ambiguousDnaComplement.Replace(rev(&seq))
+
+							h1 := getCanonicalKmer(seq)
+							h2 := getCanonicalKmer(reverseComplement)
+
+							var canonicalKmer string
+							if h1 > h2 {
+								canonicalKmer = seq
+							} else {
+								canonicalKmer = reverseComplement
+							}
+							kmerMap[canonicalKmer] = struct{}{}
 						}
 					}
-					minHashValues[i] = &minValue
-					wg.Done()
-				}(i)
-			}
-			wg.Wait()
 
-			var (
-				bestHitKey   string
-				bestHitValue float64
-			)
-			similarityMap := make(map[string]float64)
+					kmerList := [][]byte{}
+					for key := range kmerMap {
+						kmerList = append(kmerList, []byte(key))
+					}
 
-			for refKey, refValue := range plasmidsMap {
-				similarity := calcSimilarity(minHashValues, &refValue, 1024)
-				similarityMap[refKey] = similarity
+					minHashValues := make([]*uint64, sketchSize)
 
-				if similarity > bestHitValue {
-					bestHitKey = refKey
-					bestHitValue = similarity
+					for i := uint64(0); i < uint64(sketchSize); i++ {
+						minValue := uint64((1 << 64) - 1)
+						for _, kmer := range kmerList {
+							xxhv := xxhash.Checksum64S(kmer, i)
+							if minValue > xxhv {
+								minValue = xxhv
+							}
+						}
+						minHashValues[i] = &minValue
+					}
+
+					var (
+						bestHitKey   string
+						bestHitValue float64
+					)
+					similarityMap := make(map[string]float64)
+
+					for refKey, refValue := range plasmidsMap {
+						similarity := calcSimilarity(minHashValues, &refValue, 1024)
+						similarityMap[refKey] = similarity
+
+						if similarity > bestHitValue {
+							bestHitKey = refKey
+							bestHitValue = similarity
+						}
+					}
+					mutex.Lock()
+					line = fmt.Sprintf("%s\t%s\t%s\t%d\n", s.Name(), s.Description(), bestHitKey, int(bestHitValue))
+					fw.Write(([]byte)(line))
+
+					if bestHitValue >= threshold {
+						plasmidSeq.ID = s.Name()
+						plasmidSeq.Desc = fmt.Sprintf("Similar to %s (%f)", bestHitKey, bestHitValue)
+						plasmidSeq.Seq = s.Slice().(alphabet.Letters)
+						_, err := fastaw.Write(plasmidSeq)
+						if err != nil {
+							log.Printf("Failed to write: %s", err)
+						}
+					}
+
+					mutex.Unlock()
 				}
-			}
-			fmt.Println(s.Name(), s.Description(), bestHitKey, bestHitValue)
-
-			if bestHitValue >= threshold {
-				plasmidSeq.ID = s.Name()
-				plasmidSeq.Desc = fmt.Sprintf("Similar to %s (%f)", bestHitKey, bestHitValue)
-				plasmidSeq.Seq = s.Slice().(alphabet.Letters)
-				_, err := w.Write(plasmidSeq)
-				if err != nil {
-					log.Printf("Failed to write: %s", err)
-				}
-			}
-
-			if progress == true {
-				bar.Increment()
-			}
+			}()
 		}
-		if progress == true {
-			bar.FinishPrint("Done!")
-		}
+		wg.Wait()
 	},
 }
 

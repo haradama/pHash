@@ -19,8 +19,6 @@ type (
 		optBuildOut    string
 		optIdentifyOut string
 		optDB          string
-		optProgress    bool
-		optParalell    int
 		optKmer        int
 		optSketch      int
 		optThreshold   int
@@ -53,13 +51,4 @@ var (
 func init() {
 	cobra.OnInitialize()
 	RootCmd.AddCommand(versionCmd)
-}
-
-func rev(seq *string) string {
-	runes := []rune(*seq)
-	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
-		runes[i], runes[j] = runes[j], runes[i]
-	}
-
-	return string(runes)
 }
