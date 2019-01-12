@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -23,7 +24,7 @@ func init() {
 	RootCmd.AddCommand(identifyCmd)
 	identifyCmd.Flags().StringVarP(&o.optIn, "in", "i", "", "Input FASTA file")
 	identifyCmd.Flags().StringVarP(&o.optDB, "db", "d", "", "Database")
-	identifyCmd.Flags().IntVarP(&o.optThreshold, "threshold", "t", 5, "Threshold of probability")
+	identifyCmd.Flags().IntVarP(&o.optThreshold, "threshold", "t", 10, "Threshold of probability")
 }
 
 var identifyCmd = &cobra.Command{
@@ -42,6 +43,9 @@ var identifyCmd = &cobra.Command{
 		db := o.optDB
 		threshold := float32(o.optThreshold) * 0.01
 		outFile := "pHash.log.txt"
+
+		cpus := runtime.NumCPU()
+		runtime.GOMAXPROCS(cpus)
 
 		var in *fasta.Reader
 		if inFile == "" {
@@ -217,9 +221,10 @@ var identifyCmd = &cobra.Command{
 							fw.Write(([]byte)(line))
 						}
 					}
-					tb = append(tb, Row{AccID: s.Name(), Seq: seqSymbol, Length: s.Len(), Link: template.HTML(plasmidURL), Phylum: "Proteobacteria", Jaccard: bestHitValue})
 
 					if bestHitValue >= threshold {
+						tb = append(tb, Row{AccID: s.Name(), Seq: seqSymbol, Length: s.Len(), Link: template.HTML(plasmidURL), Phylum: "Proteobacteria", Jaccard: bestHitValue})
+
 						plasmidSeq.ID = s.Name()
 						plasmidSeq.Seq = s.Slice().(alphabet.Letters)
 						plasmidSeq.Desc = fmt.Sprintf("Similar to %s (%f)", strings.Join(bestHitKeys, ":"), bestHitValue)

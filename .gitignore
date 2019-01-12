@@ -5,5 +5,7 @@
 pHash/pHash
 *.phash
 *.log.txt
-./tests/*
-./src/pHash/report/*
+tests/
+src/pHash/report/
+*.ipynb
+analysis

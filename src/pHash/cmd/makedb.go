@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -40,9 +41,12 @@ var makedbCmd = &cobra.Command{
 		outFile := o.optBuildOut
 		k := o.optKmer
 		sketchSize := uint64(o.optSketch)
-
 		metadata := o.optMetadata
-		var phylumMap map[string]string
+
+		cpus := runtime.NumCPU()
+		runtime.GOMAXPROCS(cpus)
+
+		phylumMap := map[string]string{}
 		if len(metadata) > 0 {
 			csvfile, err := os.Open(metadata)
 			if err != nil {
@@ -64,7 +68,9 @@ var makedbCmd = &cobra.Command{
 							fmt.Println(err)
 							os.Exit(1)
 						}
-						return
+					}
+					if len(record) == 0 {
+						break
 					}
 					phylumMap[record[0]] = record[1]
 				}
@@ -99,7 +105,7 @@ var makedbCmd = &cobra.Command{
 			"D", "H",
 			"B", "V")
 
-		var plasmidsRecords []PlasmidRecord
+		plasmidsRecords := []PlasmidRecord{}
 
 		for i := 0; i < 1024; i++ {
 			wg.Add(1)
