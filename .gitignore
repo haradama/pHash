@@ -3,3 +3,7 @@
 *.phash
 *.gz
 pHash/pHash
+*.phash
+*.log.txt
+./tests/*
+./src/pHash/report/*

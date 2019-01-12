@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"./cmd"
@@ -9,7 +10,10 @@ import (
 
 func main() {
 	if err := cmd.RootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(-1)
+		if err != io.EOF {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		return
 	}
 }

@@ -236,9 +236,37 @@ var identifyCmd = &cobra.Command{
 		}
 		wg.Wait()
 
-		t := template.Must(template.ParseFiles("./template.html.tpl"))
+		if err := os.MkdirAll("report/assets", 0777); err != nil {
+			if err != io.EOF {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		}
+		copyFile("/assets/assets/pHash_logo.svg", "report/assets/pHash_logo.svg")
+		copyFile("/assets/assets/bootstrap.bundle.min.js", "report/assets/bootstrap.bundle.min.js")
+		copyFile("/assets/assets/bootstrap.min.css", "report/assets/bootstrap.min.css")
+		copyFile("/assets/assets/bootstrap.min.js", "report/assets/bootstrap.min.js")
 
-		report, err := os.Create("report.html")
+		f, err := Assets.Open("/assets/template.html.tpl")
+		if err != nil {
+			if err != io.EOF {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		}
+		defer f.Close()
+
+		contents, _ := ioutil.ReadAll(f)
+
+		t, err := template.New("").Parse(string(contents))
+		if err != nil {
+			if err != io.EOF {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		}
+
+		report, err := os.Create("report/index.html")
 		if err != nil {
 			if err != io.EOF {
 				fmt.Println(err)
@@ -250,7 +278,7 @@ var identifyCmd = &cobra.Command{
 		buff := new(bytes.Buffer)
 		fwt := io.Writer(buff)
 
-		if err := t.ExecuteTemplate(fwt, "template.html.tpl", tb); err != nil {
+		if err := t.Execute(fwt, tb); err != nil {
 			log.Fatal(err)
 		}
 		report.Write(buff.Bytes())
@@ -269,4 +297,32 @@ func calcSimilarity(array1 []*uint64, array2 *[]uint64, size uint64) float32 {
 	similarity := (match / float64(size)) - math.Pow(2, -bitNum)/(1-math.Pow(2, -bitNum))
 
 	return float32(similarity)
+}
+
+func copyFile(srcName string, dstName string) {
+	src, err := Assets.Open(srcName)
+	if err != nil {
+		if err != io.EOF {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	}
+	defer src.Close()
+
+	dst, err := os.Create(dstName)
+	if err != nil {
+		if err != io.EOF {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	if err != nil {
+		if err != io.EOF {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	}
 }
