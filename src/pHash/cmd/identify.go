@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
@@ -20,10 +22,8 @@ import (
 func init() {
 	RootCmd.AddCommand(identifyCmd)
 	identifyCmd.Flags().StringVarP(&o.optIn, "in", "i", "", "Input FASTA file")
-	identifyCmd.Flags().StringVarP(&o.optIdentifyOut, "out", "o", "", "Output FASTA file")
 	identifyCmd.Flags().StringVarP(&o.optDB, "db", "d", "", "Database")
 	identifyCmd.Flags().IntVarP(&o.optThreshold, "threshold", "t", 5, "Threshold of probability")
-	identifyCmd.Flags().IntVarP(&o.optSketch, "sketch", "s", 1024, "Sketch size")
 }
 
 var identifyCmd = &cobra.Command{
@@ -32,16 +32,16 @@ var identifyCmd = &cobra.Command{
 	Long:  "Identifier of plasmid using database",
 	Run: func(cmd *cobra.Command, args []string) {
 
-		if o.optIn == "" || o.optDB == "" || o.optIdentifyOut == "" {
-			fmt.Println("--in, --out and --db are required")
+		if o.optIn == "" || o.optDB == "" {
+			fmt.Println("--in and --db are required")
 			cmd.Help()
 			os.Exit(0)
 		}
 
 		inFile := o.optIn
 		db := o.optDB
-		outFile := o.optIdentifyOut
-		threshold := float64(o.optThreshold) * 0.01
+		threshold := float32(o.optThreshold) * 0.01
+		outFile := "pHash.log.txt"
 
 		var in *fasta.Reader
 		if inFile == "" {
@@ -68,27 +68,56 @@ var identifyCmd = &cobra.Command{
 			"D", "H",
 			"B", "V")
 
+		type Row struct {
+			AccID   string
+			Seq     string
+			Length  int
+			Link    template.HTML
+			Phylum  string
+			Jaccard float32
+		}
+
+		type table []Row
+		var tb table
+
 		binary, err := ioutil.ReadFile(db)
 		if err != nil {
-			fmt.Println("File reading error", err)
+			if err != io.EOF {
+				fmt.Println(err)
+				os.Exit(1)
+			}
 			return
 		}
 
 		k := messagePackDecoding(&binary).Kmer
 		sketchSize := messagePackDecoding(&binary).SketchSize
-		plasmidsMap := messagePackDecoding(&binary).Plasmid
+		plasmidsRecords := messagePackDecoding(&binary).Plasmid
 
 		var wg sync.WaitGroup
 		mutex := new(sync.Mutex)
 
-		fwfasta, _ := os.Create("pHash_plasmids.fna")
+		fwfasta, err := os.Create("pHash_plasmids.fna")
+		if err != nil {
+			if err != io.EOF {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			return
+		}
 		fastaw := fasta.NewWriter(fwfasta, 60)
 		plasmidSeq := linear.NewSeq("", nil, alphabet.DNA)
 
-		fw, _ := os.Create(outFile)
+		fw, err := os.Create(outFile)
+		if err != nil {
+			if err != io.EOF {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			return
+		}
 		defer fw.Close()
 
-		line := "AccId\tDescription\tSimilarPlasmidAccId\tSimilarity\n"
+		line := "AccId\tSimilarPlasmidAccId\tSimilarity\n"
 		fw.Write(([]byte)(line))
 
 		for i := 0; i < 1000; i++ {
@@ -110,15 +139,16 @@ var identifyCmd = &cobra.Command{
 
 					read := s.Slice()
 					kmerNum := read.Len() - (k - 1)
-					kmerMap := make(map[string]struct{})
+					kmerMap := make(map[string]struct{}, kmerNum)
+					var seq string
 
 					for i := 0; i < kmerNum; i++ {
-						seq := read.Slice(i, i+k).(alphabet.Letters).String()
+						seq = read.Slice(i, i+k).(alphabet.Letters).String()
 						if strings.Index(seq, "N") == -1 {
 							reverseComplement := ambiguousDnaComplement.Replace(rev(&seq))
 
-							h1 := getCanonicalKmer(seq)
-							h2 := getCanonicalKmer(reverseComplement)
+							h1 := xxhash.ChecksumString32S(seq, 0)
+							h2 := xxhash.ChecksumString32S(reverseComplement, 0)
 
 							var canonicalKmer string
 							if h1 > h2 {
@@ -130,14 +160,14 @@ var identifyCmd = &cobra.Command{
 						}
 					}
 
-					kmerList := [][]byte{}
+					kmerList := make([][]byte, len(kmerMap))
 					for key := range kmerMap {
 						kmerList = append(kmerList, []byte(key))
 					}
 
 					minHashValues := make([]*uint64, sketchSize)
 
-					for i := uint64(0); i < uint64(sketchSize); i++ {
+					for i := uint64(0); i < sketchSize; i++ {
 						minValue := uint64((1 << 64) - 1)
 						for _, kmer := range kmerList {
 							xxhv := xxhash.Checksum64S(kmer, i)
@@ -149,28 +179,51 @@ var identifyCmd = &cobra.Command{
 					}
 
 					var (
-						bestHitKey   string
-						bestHitValue float64
+						bestHitKeys  []string
+						bestHitValue float32
+						similarity   float32
 					)
-					similarityMap := make(map[string]float64)
 
-					for refKey, refValue := range plasmidsMap {
-						similarity := calcSimilarity(minHashValues, &refValue, 1024)
-						similarityMap[refKey] = similarity
+					for _, record := range plasmidsRecords {
+						refKey := record.AccID
+						refValue := record.PlasmidMinHashValue
+						similarity = calcSimilarity(minHashValues, &refValue, sketchSize)
 
 						if similarity > bestHitValue {
-							bestHitKey = refKey
+							bestHitKeys = []string{refKey}
 							bestHitValue = similarity
+						} else if similarity == bestHitValue {
+							bestHitKeys = append(bestHitKeys, refKey)
 						}
 					}
+
 					mutex.Lock()
-					line = fmt.Sprintf("%s\t%s\t%s\t%d\n", s.Name(), s.Description(), bestHitKey, int(bestHitValue))
-					fw.Write(([]byte)(line))
+					seqSymbol := fmt.Sprintf("%s...%s", seq[:3], seq[len(seq)-3:])
+
+					var plasmidURL string
+					if len(bestHitKeys) == 1 {
+						plasmidURL = fmt.Sprintf("<a href=\"https://www.ncbi.nlm.nih.gov/nuccore/%s\" target=\"_blank\">%s</a>", bestHitKeys[0], bestHitKeys[0])
+
+						line = fmt.Sprintf("%s\t%s\t%f\n", s.Name(), bestHitKeys[0], bestHitValue)
+						fw.Write(([]byte)(line))
+
+					} else if len(bestHitKeys) > 1 {
+						for _, bestHitKey := range bestHitKeys {
+							plasmidURLs := []string{}
+							plasmidURLs = append(plasmidURLs, fmt.Sprintf("<a href=\"https://www.ncbi.nlm.nih.gov/nuccore/%s\" target=\"_blank\">%s</a>", bestHitKey, bestHitKeys[0]))
+							plasmidURL = strings.Join(plasmidURLs, "<br>")
+
+							line = fmt.Sprintf("%s\t%s\t%f\n", s.Name(), bestHitKey, bestHitValue)
+							fw.Write(([]byte)(line))
+						}
+					}
+					tb = append(tb, Row{AccID: s.Name(), Seq: seqSymbol, Length: s.Len(), Link: template.HTML(plasmidURL), Phylum: "Proteobacteria", Jaccard: bestHitValue})
 
 					if bestHitValue >= threshold {
 						plasmidSeq.ID = s.Name()
-						plasmidSeq.Desc = fmt.Sprintf("Similar to %s (%f)", bestHitKey, bestHitValue)
 						plasmidSeq.Seq = s.Slice().(alphabet.Letters)
+						plasmidSeq.Desc = fmt.Sprintf("Similar to %s (%f)", strings.Join(bestHitKeys, ":"), bestHitValue)
+
 						_, err := fastaw.Write(plasmidSeq)
 						if err != nil {
 							log.Printf("Failed to write: %s", err)
@@ -182,10 +235,30 @@ var identifyCmd = &cobra.Command{
 			}()
 		}
 		wg.Wait()
+
+		t := template.Must(template.ParseFiles("./template.html.tpl"))
+
+		report, err := os.Create("report.html")
+		if err != nil {
+			if err != io.EOF {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		}
+		defer report.Close()
+
+		buff := new(bytes.Buffer)
+		fwt := io.Writer(buff)
+
+		if err := t.ExecuteTemplate(fwt, "template.html.tpl", tb); err != nil {
+			log.Fatal(err)
+		}
+		report.Write(buff.Bytes())
+
 	},
 }
 
-func calcSimilarity(array1 []*uint64, array2 *[]uint64, size float64) float64 {
+func calcSimilarity(array1 []*uint64, array2 *[]uint64, size uint64) float32 {
 	var match float64
 	for i := 0; i < int(size); i++ {
 		if *array1[i] == (*array2)[i] {
@@ -193,7 +266,7 @@ func calcSimilarity(array1 []*uint64, array2 *[]uint64, size float64) float64 {
 		}
 	}
 	var bitNum float64 = 64
-	similarity := (match / size) - math.Pow(2, -bitNum)/(1-math.Pow(2, -bitNum))
+	similarity := (match / float64(size)) - math.Pow(2, -bitNum)/(1-math.Pow(2, -bitNum))
 
-	return similarity
+	return float32(similarity)
 }

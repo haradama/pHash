@@ -28,11 +28,11 @@ Flags:
 
 for example,
 ```
-pHash identify -d plasmidDB11062018.phash -i YOUR_METAGEMOMIC_DATA
+pHash identify -d PLASMID_DATABASE -i YOUR_METAGEMOMIC_DATA
 ```
 If you want to build your own database, please execute the following command.
 ```
-pHash build -i YOUR_PLASMID_DATA -o YOUR_DATABASE_NAME
+pHash makedb -i YOUR_PLASMID_DATA -o YOUR_DATABASE_NAME
 ```
 
 ## Test

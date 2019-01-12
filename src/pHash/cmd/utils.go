@@ -2,9 +2,37 @@ package cmd
 
 import (
 	"log"
-	"unicode/utf8"
 
 	"github.com/ugorji/go/codec"
+)
+
+type (
+	PlasmidRecord struct {
+		AccID               string
+		Phylum              string
+		PlasmidMinHashValue []uint64
+	}
+
+	Plasmids struct {
+		SketchSize uint64
+		Kmer       int
+		Plasmid    []PlasmidRecord
+	}
+
+	Options struct {
+		optIn          string
+		optBuildOut    string
+		optIdentifyOut string
+		optDB          string
+		optMetadata    string
+		optKmer        int
+		optSketch      int
+		optThreshold   int
+	}
+)
+
+var (
+	mh codec.MsgpackHandle
 )
 
 func messagePackEncoding(plasmids *Plasmids) []byte {
@@ -32,12 +60,4 @@ func rev(seq *string) string {
 	}
 
 	return string(runes)
-}
-
-func getCanonicalKmer(seq string) int {
-	num := 0
-	for i := 0; i < utf8.RuneCountInString(seq); i++ {
-		num += int(seq[i])
-	}
-	return num
 }

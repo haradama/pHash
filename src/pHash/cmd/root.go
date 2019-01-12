@@ -4,30 +4,10 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/ugorji/go/codec"
-)
-
-type (
-	Plasmids struct {
-		SketchSize int
-		Kmer       int
-		Plasmid    map[string][]uint64
-	}
-
-	Options struct {
-		optIn          string
-		optBuildOut    string
-		optIdentifyOut string
-		optDB          string
-		optKmer        int
-		optSketch      int
-		optThreshold   int
-	}
 )
 
 var (
-	mh codec.MsgpackHandle
-	o  = &Options{}
+	o = &Options{}
 
 	RootCmd = &cobra.Command{
 		Use:   "pHash",

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/csv"
 	"fmt"
 	"io"
 	"os"
@@ -17,9 +18,10 @@ import (
 func init() {
 	RootCmd.AddCommand(makedbCmd)
 	makedbCmd.Flags().StringVarP(&o.optIn, "in", "i", "default", "Input FASTA file")
+	makedbCmd.Flags().StringVarP(&o.optMetadata, "meta", "m", "", "Input FASTA file")
 	makedbCmd.Flags().StringVarP(&o.optBuildOut, "out", "o", "reference.phash", "Database")
 	makedbCmd.Flags().IntVarP(&o.optKmer, "kmer", "k", 16, "Length of k-mer")
-	makedbCmd.Flags().IntVarP(&o.optSketch, "sketch", "s", 1024, "Sketch size")
+	makedbCmd.Flags().IntVarP(&o.optSketch, "sketch", "s", 512, "Sketch size")
 }
 
 var makedbCmd = &cobra.Command{
@@ -37,7 +39,37 @@ var makedbCmd = &cobra.Command{
 		inFile := o.optIn
 		outFile := o.optBuildOut
 		k := o.optKmer
-		sketchSize := o.optSketch
+		sketchSize := uint64(o.optSketch)
+
+		metadata := o.optMetadata
+		var phylumMap map[string]string
+		if len(metadata) > 0 {
+			csvfile, err := os.Open(metadata)
+			if err != nil {
+				if err != io.EOF {
+					fmt.Println(err)
+					os.Exit(1)
+				}
+				return
+			}
+			defer csvfile.Close()
+
+			csvreader := csv.NewReader(csvfile)
+
+			if metadata != "" {
+				for {
+					record, _ := csvreader.Read()
+					if err != nil {
+						if err != io.EOF {
+							fmt.Println(err)
+							os.Exit(1)
+						}
+						return
+					}
+					phylumMap[record[0]] = record[1]
+				}
+			}
+		}
 
 		var in *fasta.Reader
 		if inFile == "" {
@@ -67,9 +99,9 @@ var makedbCmd = &cobra.Command{
 			"D", "H",
 			"B", "V")
 
-		plasmidsMap := map[string][]uint64{}
+		var plasmidsRecords []PlasmidRecord
 
-		for i := 0; i < 1000; i++ {
+		for i := 0; i < 1024; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -88,14 +120,14 @@ var makedbCmd = &cobra.Command{
 
 					read := s.Slice()
 					kmerNum := read.Len() - (k - 1)
-					kmerMap := make(map[string]struct{})
+					kmerMap := make(map[string]struct{}, kmerNum)
 
 					for i := 0; i < kmerNum; i++ {
 						seq := read.Slice(i, i+k).(alphabet.Letters).String()
 						if strings.Index(seq, "N") == -1 {
 							reverseComplement := ambiguousDnaComplement.Replace(rev(&seq))
-							h1 := getCanonicalKmer(seq)
-							h2 := getCanonicalKmer(reverseComplement)
+							h1 := xxhash.ChecksumString32S(seq, 0)
+							h2 := xxhash.ChecksumString32S(reverseComplement, 0)
 
 							var canonicalKmer string
 							if h1 > h2 {
@@ -107,14 +139,14 @@ var makedbCmd = &cobra.Command{
 						}
 					}
 
-					kmerList := [][]byte{}
+					kmerList := make([][]byte, len(kmerMap))
 					for key := range kmerMap {
 						kmerList = append(kmerList, []byte(key))
 					}
 
 					minHashValues := make([]uint64, sketchSize)
 
-					for i := uint64(0); i < uint64(sketchSize); i++ {
+					for i := uint64(0); i < sketchSize; i++ {
 						minValue := uint64((1 << 64) - 1)
 						for _, kmer := range kmerList {
 							xxhv := xxhash.Checksum64S(kmer, i)
@@ -126,7 +158,11 @@ var makedbCmd = &cobra.Command{
 					}
 
 					mutex.Lock()
-					plasmidsMap[s.Name()] = minHashValues
+					phylum := "---"
+					if value, ok := phylumMap[s.Name()]; ok {
+						phylum = value
+					}
+					plasmidsRecords = append(plasmidsRecords, PlasmidRecord{AccID: s.Name(), Phylum: phylum, PlasmidMinHashValue: minHashValues})
 					mutex.Unlock()
 				}
 			}()
@@ -136,7 +172,7 @@ var makedbCmd = &cobra.Command{
 		plasmids := Plasmids{
 			SketchSize: sketchSize,
 			Kmer:       k,
-			Plasmid:    plasmidsMap,
+			Plasmid:    plasmidsRecords,
 		}
 
 		file, err := os.Create(outFile)
